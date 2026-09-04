@@ -63,7 +63,7 @@ class PolicyIter:
             if delta <= self.thre:
                 break
             cnt += 1
-        print(f'\nPolicy finished in {cnt} iterations')
+        print(f'\nPolicy evaluation finished in {cnt} iterations')
 
     def policy_impro(self):
         for s in range(self.tot):
@@ -84,6 +84,49 @@ class PolicyIter:
             self.policy_impro()
             if pi_old == self.pi:
                 break
+
+
+class ValueIter:
+    def __init__(self, env, gamma, thre):
+        self.env = env
+        self.gamma = gamma
+        self.thre = thre
+        self.tot = self.env.ncol * self.env.nrow
+        self.V = [0] * self.tot
+        self.pi = [[0.25, 0.25, 0.25, 0.25] for _ in range(self.tot)]
+
+    def value_iter(self):
+        cnt = 1
+        while True:
+            delta = 0.
+            tmp_V = [0] * self.tot
+            for s in range(self.tot):
+                tmp_maxn = -np.inf
+                for a in range(4):
+                    tmp_sum = np.sum([p * self.V[next_state] for (p, next_state, _) in self.env.P[s][a]])
+                    r = self.env.P[s][a][0][2]
+                    tmp_maxn = max(r + self.gamma * tmp_sum, tmp_maxn)
+                tmp_V[s] = tmp_maxn
+                delta = max(delta, abs(tmp_V[s] - self.V[s]))
+            self.V = tmp_V
+            if delta <= self.thre:
+                break
+            cnt += 1
+        print(f'\nValue iteration finished in {cnt} iterations')
+        self.get_policy()
+
+    def get_policy(self):
+        for s in range(self.tot):
+            qsa_list = []
+            for a in range(4):
+                tmp_sum = np.sum([p * self.V[next_state] for (p, next_state, _) in self.env.P[s][a]])
+                r = self.env.P[s][a][0][2]
+                qsa_list.append(r + self.gamma * tmp_sum)
+            tmp_maxn = max(qsa_list)
+            cnt = qsa_list.count(tmp_maxn)
+            self.pi[s] = [1 / cnt if q == tmp_maxn else 0 for q in qsa_list]
+        print(f'Policy improvement finished')
+
 
 
 def printPolicy(agent, disaster=[], end=[]):  # Visualize the policy
@@ -119,7 +162,9 @@ if __name__ == '__main__':
     Coding
     """
     env = CliffWalkingEnv()
-    agent = PolicyIter(env, gamma, theta)
-    agent.policy_iter()
-    printPolicy(agent, disaster=range(37,47), end=[47])
+    # agent = PolicyIter(env, gamma, theta)
+    # agent.policy_iter()
+    agent = ValueIter(env, gamma, theta)
+    agent.value_iter()
+    printPolicy(agent, disaster=range(37, 47), end=[47])
     pass
