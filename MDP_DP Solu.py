@@ -63,7 +63,7 @@ class PolicyIter:
             if delta <= self.thre:
                 break
             cnt += 1
-        print(f'Policy finished in {cnt} iterations')
+        print(f'\nPolicy finished in {cnt} iterations')
 
     def policy_impro(self):
         for s in range(self.tot):
@@ -75,6 +75,7 @@ class PolicyIter:
             maxn = max(qsa_list)
             tmp = qsa_list.count(maxn)
             self.pi[s] = [1 / tmp if q == maxn else 0 for q in qsa_list]
+        print(f'Policy improvement finished')
 
     def policy_iter(self):
         while True:
@@ -83,6 +84,29 @@ class PolicyIter:
             self.policy_impro()
             if pi_old == self.pi:
                 break
+
+
+def printPolicy(agent, disaster=[], end=[]):  # Visualize the policy
+    action_meaning = ['^', 'v', '<', '>']
+    print('\nValue-state functions:')
+    for i in range(agent.env.nrow):
+        for j in range(agent.env.ncol):
+            print(f'{agent.V[i * agent.env.ncol + j]:<6.3f}', end=' ')
+        print()
+
+    print('\nPolicy:')
+    for i in range(agent.env.nrow):
+        for j in range(agent.env.ncol):
+            if i * agent.env.ncol + j in disaster:
+                print('****', end=' ')
+            elif i * agent.env.ncol + j in end:
+                print('EEEE', end=' ')
+            else:
+                tmp = ''
+                for k in range(4):
+                    tmp += action_meaning[k] if agent.pi[i * agent.env.ncol + j][k] != 0 else 'o'
+                print(f'{tmp}', end=' ')
+        print()
 
 
 if __name__ == '__main__':
@@ -97,4 +121,5 @@ if __name__ == '__main__':
     env = CliffWalkingEnv()
     agent = PolicyIter(env, gamma, theta)
     agent.policy_iter()
+    printPolicy(agent, disaster=range(37,47), end=[47])
     pass
