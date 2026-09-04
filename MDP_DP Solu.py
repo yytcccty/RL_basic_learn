@@ -127,8 +127,9 @@ class ValueIter:
         print(f'Policy improvement finished')
 
 
-
-def printPolicy(agent, disaster=[], end=[]):  # Visualize the policy
+def printPolicy(agent, disaster=None, end=None):  # Visualize the policy
+    if end is None:
+        end = []
     action_meaning = ['^', 'v', '<', '>']
     print('\nValue-state functions:')
     for i in range(agent.env.nrow):
