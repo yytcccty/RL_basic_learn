@@ -2,8 +2,9 @@ import gym
 from MDP_DP_Solu import PolicyIter, ValueIter, printPolicy
 
 if __name__ == '__main__':
-    env = gym.make("FrozenLake-v1")
-    env = env.unwrapped
+    env = gym.make("FrozenLake-v1", render_mode="human")
+    # env = env.unwrapped
+    env.reset()
     env.render()
 
     holes = set()
