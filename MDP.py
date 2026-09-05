@@ -52,7 +52,7 @@ def CalV_EV(samp_paths, gamma, N, V):  # Calculate V in an 'Every-visit' manner
     """In a 'First-visit' manner"""
 
 
-def CalV_FV(samp_paths, gamma, N, V, S):  # Calculate V in an 'First-visit' manner
+def CalV_FV(samp_paths, gamma, N, V):  # Calculate V in an 'First-visit' manner
     for one_path in samp_paths:
         tmp_len = len(one_path)
         G = 0.
