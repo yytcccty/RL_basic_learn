@@ -53,7 +53,7 @@ class PolicyIter:
             for s in range(self.tot):
                 tmp_sum_1 = 0.
                 for a in range(4):
-                    tmp_sum_2 = np.sum([p * self.V[next_state] for (p, next_state, _) in self.env.P[s][a]])
+                    tmp_sum_2 = np.sum([p * self.V[next_state] for (p, next_state, *_) in self.env.P[s][a]])
                     r = self.env.P[s][a][0][2]
                     tmp_sum_1 += (r + self.gamma * tmp_sum_2) * self.pi[s][a]
                 tmp_V[s] = tmp_sum_1
@@ -68,7 +68,7 @@ class PolicyIter:
         for s in range(self.tot):
             qsa_list = []
             for a in range(4):
-                tmp = np.sum([p * self.V[next_state] for (p, next_state, _) in self.env.P[s][a]])
+                tmp = np.sum([p * self.V[next_state] for (p, next_state, *_) in self.env.P[s][a]])
                 r = self.env.P[s][a][0][2]
                 qsa_list.append(r + self.gamma * tmp)
             maxn = max(qsa_list)
@@ -102,7 +102,7 @@ class ValueIter:
             for s in range(self.tot):
                 tmp_maxn = -np.inf
                 for a in range(4):
-                    tmp_sum = np.sum([p * self.V[next_state] for (p, next_state, _) in self.env.P[s][a]])
+                    tmp_sum = np.sum([p * self.V[next_state] for (p, next_state, *_) in self.env.P[s][a]])
                     r = self.env.P[s][a][0][2]
                     tmp_maxn = max(r + self.gamma * tmp_sum, tmp_maxn)
                 tmp_V[s] = tmp_maxn
@@ -118,7 +118,7 @@ class ValueIter:
         for s in range(self.tot):
             qsa_list = []
             for a in range(4):
-                tmp_sum = np.sum([p * self.V[next_state] for (p, next_state, _) in self.env.P[s][a]])
+                tmp_sum = np.sum([p * self.V[next_state] for (p, next_state, *_) in self.env.P[s][a]])
                 r = self.env.P[s][a][0][2]
                 qsa_list.append(r + self.gamma * tmp_sum)
             tmp_maxn = max(qsa_list)
