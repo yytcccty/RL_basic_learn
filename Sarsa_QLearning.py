@@ -1,3 +1,4 @@
+import random
 import numpy as np
 from tqdm import tqdm
 import matplotlib.pyplot as plt
@@ -101,13 +102,15 @@ class Sarsa:
 
 
 class Q_Learning:
-    def __init__(self, alpha, gamma, eps, ncol, nrow, n_act=4):
+    def __init__(self, alpha, gamma, eps, ncol, nrow, n_plan=0, n_act=4):
         self.alpha = alpha
         self.gamma = gamma
         self.eps = eps
         self.n_act = n_act
         self.Q = np.zeros((nrow * ncol, n_act))
 
+        self.n_plan = n_plan
+        self.model = {}
         self.rng = np.random.default_rng(seed=91)
 
     def perform_action(self, s_cur):
@@ -120,8 +123,16 @@ class Q_Learning:
         else:
             return np.argmax(self.Q[s_cur])
 
-    def update(self, s_cur, a_cur, r, s_next):
+    def q_learning(self, s_cur, a_cur, r, s_next):
         self.Q[s_cur, a_cur] += self.alpha * (r + self.gamma * np.max(self.Q[s_next, :]) - self.Q[s_cur, a_cur])
+
+    def update(self, s_cur, a_cur, r, s_next):
+        self.q_learning(s_cur, a_cur, r, s_next)
+        self.model[(s_cur, a_cur)] = r, s_next
+        for _ in range(self.n_plan):
+            (s, a), (r, s_) = random.choice(list(self.model.items()))
+            self.q_learning(s, a, r, s_)
+
 
 
 def printPolicy(agent, env, disaster=None, end=None):
@@ -150,15 +161,16 @@ if __name__ == '__main__':
     ncol, nrow = 12, 4
     alpha = 0.1
     gamma = 0.9
-    eps = 0.1
-    episodes = 500
-    n_step = 5
+    eps = 0.01
+    episodes = 300
     alg_name = 'QLearning'  # ['Sarsa', 'QLearning']
+
+    n_step = 5  # Parameter of n-step Sarsa
+    n_plan_list = [0, 2, 20]  # Parameter of Dyna-Q
     """
     Coding
     """
     env = CliffWalkingEnv(ncol, nrow)
-
 
     retn_list = []
     if alg_name == 'Sarsa':
@@ -177,28 +189,32 @@ if __name__ == '__main__':
                 if done is True:
                     break
             retn_list.append(tmp_retn)
+        plt.plot(retn_list, label=f'{n_step} step Sarsa')
 
     elif alg_name == 'QLearning':
-        agent = Q_Learning(alpha, gamma, eps, ncol, nrow)
-        for cnt in tqdm(range(episodes), desc=f'Episodes'):
-            s_cur = env.reset()
-            tmp_retn = 0.
-            while True:
-                a_cur = agent.perform_action(s_cur)
-                (s_next, reward, done) = env.interact(a_cur)
-                agent.update(s_cur, a_cur, reward, s_next)
-                tmp_retn += reward  # No discount here
-                s_cur = s_next
-                if done is True:
-                    break
-            retn_list.append(tmp_retn)
+        for n in n_plan_list:
+            agent = Q_Learning(alpha, gamma, eps, ncol, nrow, n)
+            for cnt in tqdm(range(episodes), desc=f'Episodes'):
+                s_cur = env.reset()
+                tmp_retn = 0.
+                while True:
+                    a_cur = agent.perform_action(s_cur)
+                    (s_next, reward, done) = env.interact(a_cur)
+                    agent.update(s_cur, a_cur, reward, s_next)
+                    tmp_retn += reward  # No discount here
+                    s_cur = s_next
+                    if done is True:
+                        break
+                retn_list.append(tmp_retn)
+            plt.plot(retn_list, label=f'{n} planning steps')
+            retn_list = []
 
     print(f'{alg_name} policy result: ')
     printPolicy(agent, env, disaster=range(37, 47), end=[47])
 
-    plt.plot(retn_list),
     plt.xlabel('Episode')
     plt.ylabel('Reward Sum')
+    plt.legend()
     plt.show()
 
     pass
