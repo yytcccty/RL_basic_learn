@@ -100,6 +100,30 @@ class Sarsa:
             self.a_list = []
 
 
+class Q_Learning:
+    def __init__(self, alpha, gamma, eps, ncol, nrow, n_act=4):
+        self.alpha = alpha
+        self.gamma = gamma
+        self.eps = eps
+        self.n_act = n_act
+        self.Q = np.zeros((nrow * ncol, n_act))
+
+        self.rng = np.random.default_rng(seed=91)
+
+    def perform_action(self, s_cur):
+        """
+        :param s_cur: Current state
+        :return: Action
+        """
+        if self.rng.random() < self.eps:
+            return self.rng.integers(self.n_act)
+        else:
+            return np.argmax(self.Q[s_cur])
+
+    def update(self, s_cur, a_cur, r, s_next):
+        self.Q[s_cur, a_cur] += self.alpha * (r + self.gamma * np.max(self.Q[s_next, :]) - self.Q[s_cur, a_cur])
+
+
 def printPolicy(agent, env, disaster=None, end=None):
     action_meaning = ['^', 'v', '<', '>']
     for i in range(env.nrow):
@@ -129,29 +153,47 @@ if __name__ == '__main__':
     eps = 0.1
     episodes = 500
     n_step = 5
+    alg_name = 'QLearning'  # ['Sarsa', 'QLearning']
     """
     Coding
     """
     env = CliffWalkingEnv(ncol, nrow)
-    agent = Sarsa(n_step, alpha, gamma, eps, ncol, nrow)
+
 
     retn_list = []
-    for cnt in tqdm(range(episodes), desc=f'Episodes'):
-        s_cur = env.reset()
-        a_cur = agent.perform_action(s_cur)
-        tmp_retn = 0.
-        while True:
-            (s_next, reward, done) = env.interact(a_cur)
-            a_next = agent.perform_action(s_next)
-            agent.update(s_cur, a_cur, reward, s_next, a_next, done)
-            tmp_retn += reward  # No discount here
-            s_cur = s_next
-            a_cur = a_next
-            if done is True:
-                break
-        retn_list.append(tmp_retn)
+    if alg_name == 'Sarsa':
+        agent = Sarsa(n_step, alpha, gamma, eps, ncol, nrow)
+        for cnt in tqdm(range(episodes), desc=f'Episodes'):
+            s_cur = env.reset()
+            a_cur = agent.perform_action(s_cur)
+            tmp_retn = 0.
+            while True:
+                (s_next, reward, done) = env.interact(a_cur)
+                a_next = agent.perform_action(s_next)
+                agent.update(s_cur, a_cur, reward, s_next, a_next, done)
+                tmp_retn += reward  # No discount here
+                s_cur = s_next
+                a_cur = a_next
+                if done is True:
+                    break
+            retn_list.append(tmp_retn)
 
-    print(f'Sarsa policy result: ')
+    elif alg_name == 'QLearning':
+        agent = Q_Learning(alpha, gamma, eps, ncol, nrow)
+        for cnt in tqdm(range(episodes), desc=f'Episodes'):
+            s_cur = env.reset()
+            tmp_retn = 0.
+            while True:
+                a_cur = agent.perform_action(s_cur)
+                (s_next, reward, done) = env.interact(a_cur)
+                agent.update(s_cur, a_cur, reward, s_next)
+                tmp_retn += reward  # No discount here
+                s_cur = s_next
+                if done is True:
+                    break
+            retn_list.append(tmp_retn)
+
+    print(f'{alg_name} policy result: ')
     printPolicy(agent, env, disaster=range(37, 47), end=[47])
 
     plt.plot(retn_list),
