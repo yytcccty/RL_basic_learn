@@ -1,4 +1,6 @@
 import numpy as np
+from tqdm import tqdm
+import matplotlib.pyplot as plt
 
 
 class CliffWalkingEnv:
@@ -107,20 +109,28 @@ if __name__ == '__main__':
     env = CliffWalkingEnv(ncol, nrow)
     agent = Sarsa(alpha, gamma, eps, ncol, nrow)
 
-    for cnt in range(episodes):
+    retn_list = []
+    for cnt in tqdm(range(episodes), desc='Episode'):
         s_cur = env.reset()
         a_cur = agent.perform_action(s_cur)
+        tmp_retn = 0.
         while True:
             (s_next, reward, done) = env.interact(a_cur)
             a_next = agent.perform_action(s_next)
             agent.update(s_cur, a_cur, reward, s_next, a_next)
+            tmp_retn += reward  # No discount here
             s_cur = s_next
             a_cur = a_next
             if done is True:
                 break
-        print(f'Episodes {cnt} finished')
+        retn_list.append(tmp_retn)
 
     print(f'Sarsa policy result: ')
     printPolicy(agent, env, disaster=range(37, 47), end=[47])
+
+    plt.plot(retn_list),
+    plt.xlabel('Episode')
+    plt.ylabel('Reward Sum')
+    plt.show()
 
     pass
