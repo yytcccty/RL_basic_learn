@@ -40,11 +40,29 @@ class Qnet(torch.nn.Module):
         return self.fc2(x)
 
 
+class VA_net(torch.nn.Module):
+    def __init__(self, state_dim, hidden_dim, action_dim):
+        super(VA_net, self).__init__()
+        self.fc1 = torch.nn.Linear(state_dim, hidden_dim)
+        self.V_net = torch.nn.Linear(hidden_dim, 1)
+        self.A_net = torch.nn.Linear(hidden_dim, action_dim)
+
+    def forward(self, x):
+        A = self.A_net(F.relu(self.fc1(x)))
+        V = self.V_net(F.relu(self.fc1(x)))
+        Q = V + A - A.mean(1).view(-1, 1)
+        return Q
+
+
 class DQN:
     def __init__(self, state_dim, hidden_dim, action_dim, lr, gamma, device, eps, target_update, dqn_type='vanilla'):
         self.action_dim = action_dim
-        self.q_net = Qnet(state_dim, hidden_dim, action_dim).to(device)
-        self.target_net = Qnet(state_dim, hidden_dim, action_dim).to(device)
+        if dqn_type == 'DuelingDQN':
+            self.q_net = VA_net(state_dim, hidden_dim, action_dim).to(device)
+            self.target_net = VA_net(state_dim, hidden_dim, action_dim).to(device)
+        else:
+            self.q_net = Qnet(state_dim, hidden_dim, action_dim).to(device)
+            self.target_net = Qnet(state_dim, hidden_dim, action_dim).to(device)
         self.optimizer = torch.optim.Adam(self.q_net.parameters(), lr=lr)
         self.gamma = gamma
         self.eps = eps
@@ -56,14 +74,14 @@ class DQN:
         self.rng = np.random.default_rng(seed=91)
 
     def max_q_value(self, state):
-        state = torch.tensor(state, dtype=torch.float).to(self.device)
+        state = torch.tensor(np.array([state]), dtype=torch.float).to(self.device)
         return self.q_net(state).max().item()
 
     def perform_action(self, state):
         if self.rng.random() < self.eps:
             return self.rng.integers(self.action_dim)
         else:
-            state = torch.tensor(state, dtype=torch.float).to(self.device)
+            state = torch.tensor(np.array([state]), dtype=torch.float).to(self.device)
             return self.q_net(state).argmax().item()
 
     def update(self, transition_dict):
@@ -74,11 +92,12 @@ class DQN:
         dones = torch.tensor(transition_dict['dones'], dtype=torch.float).to(self.device).view(-1, 1)
 
         q_values = self.q_net(states).gather(1, actions)  # Q(s,a)
-        if self.dqn_type == 'vanilla':
-            q_nex_max_value = self.target_net(next_states).max(1)[0].view(-1, 1)  # \max_a Q(s_next, a)
-        elif self.dqn_type == 'DoubleDQN':
+
+        if self.dqn_type == 'DoubleDQN':
             a_next_max_value = self.q_net(next_states).argmax(1).view(-1, 1)
             q_nex_max_value = self.target_net(next_states).gather(1, a_next_max_value)
+        else:
+            q_nex_max_value = self.target_net(next_states).max(1)[0].view(-1, 1)  # \max_a Q(s_next, a)
 
         q_target = rewards + self.gamma * q_nex_max_value * (1 - dones)
         dqn_loss = F.mse_loss(q_values, q_target).mean()
@@ -91,7 +110,7 @@ class DQN:
             self.target_net.load_state_dict(self.q_net.state_dict())
 
 
-def train_DQN(agent, env, episodes, replay_buffer, minimal_size, buffer_size):
+def train_DQN(agent, env, episodes, replay_buffer, minimal_size, batch_size):
     retn_list = []
     max_q_list = []
     max_q = 0.
@@ -154,9 +173,10 @@ if __name__ == '__main__':
     replay_buffer = rl_utils.ReplayBuffer(buffer_size)
     state_dim = env.observation_space.shape[0]
     action_dim = 11
-    agent = DQN(state_dim, hidden_dim, action_dim, lr, gamma, device, eps, target_update, dqn_type='DoubleDQN')
+    agent = DQN(state_dim, hidden_dim, action_dim, lr, gamma, device, eps, target_update, dqn_type='DuelingDQN')
+    # dqn_type list:['vanilla', 'DoubleDQN', 'DuelingDQN']
 
-    retn_list, max_q_list = train_DQN(agent, env, episodes, replay_buffer, minimal_size, buffer_size)
+    retn_list, max_q_list = train_DQN(agent, env, episodes, replay_buffer, minimal_size, batch_size)
 
     mv_return = rl_utils.moving_average(retn_list, 5)
     plt.plot(mv_return)
