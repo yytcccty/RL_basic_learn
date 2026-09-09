@@ -10,6 +10,7 @@ import torch.nn.functional as F
 import gym
 from tqdm import tqdm
 
+
 class Policy_net(torch.nn.Module):
     def __init__(self, state_dim, hidden_size, action_dim):
         super(Policy_net, self).__init__()
@@ -26,7 +27,7 @@ class REINFORCE:
     def __init__(self, state_dim, hidden_size, action_dim, gamma, lr, device):
         self.gamma = gamma
         self.device = device
-        self.policy = Policy_net(state_dim, hidden_size, action_dim)
+        self.policy = Policy_net(state_dim, hidden_size, action_dim).to(device)
         self.optimizer = torch.optim.Adam(self.policy.parameters(), lr=lr)
 
     def take_action(self, state):
