@@ -134,7 +134,6 @@ class Q_Learning:
             self.q_learning(s, a, r, s_)
 
 
-
 def printPolicy(agent, env, disaster=None, end=None):
     action_meaning = ['^', 'v', '<', '>']
     for i in range(env.nrow):
