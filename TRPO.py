@@ -10,9 +10,9 @@ import torch
 import torch.nn.functional as F
 
 
-class Policy_net(torch.nn.Module):
+class PolicyNet(torch.nn.Module):
     def __init__(self, state_dim, hidden_dim, action_dim):
-        super(Policy_net, self).__init__()
+        super(PolicyNet, self).__init__()
         self.fc1 = torch.nn.Linear(state_dim, hidden_dim)
         self.fc2 = torch.nn.Linear(hidden_dim, action_dim)
 
@@ -20,6 +20,20 @@ class Policy_net(torch.nn.Module):
         x = F.relu(self.fc1(x))
         x = F.softmax(self.fc2(x), dim=-1)
         return x
+
+
+class PolicyNetContinuous(torch.nn.Module):
+    def __init__(self, state_dim, hidden_dim, action_dim):
+        super(PolicyNetContinuous, self).__init__()
+        self.fc1 = torch.nn.Linear(state_dim, hidden_dim)
+        self.fc_mu = torch.nn.Linear(hidden_dim, action_dim)
+        self.fc_sigma = torch.nn.Linear(hidden_dim, action_dim)
+
+    def forward(self, x):
+        x = F.relu(self.fc1(x))
+        mu = 2.0 * torch.tanh(self.fc_mu(x))
+        sigma = F.softplus(self.fc_sigma(x))
+        return mu, sigma
 
 
 class Value_net(torch.nn.Module):
@@ -53,8 +67,11 @@ def compute_GAE(lamda, gamma, td_error):
 
 
 class TRPO:
+    """
+    Suitable for discrete action
+    """
     def __init__(self, state_dim, action_dim, hidden_dim, kl_delta, gamma, alpha, lr_critic, lamda, device):
-        self.actor = Policy_net(state_dim, hidden_dim, action_dim).to(device)
+        self.actor = PolicyNet(state_dim, hidden_dim, action_dim).to(device)
         self.critic = Value_net(state_dim, hidden_dim).to(device)
         self.kl_delta = kl_delta
         self.gamma = gamma
@@ -74,7 +91,7 @@ class TRPO:
         """
         Compute the estimation of the surrogate objective.
 
-        :param old_log_prob: The :math:`\pi_{\theta_k}(a \mid s)` term.
+        :param old_log_prob: The :math:`\log{\pi_{\theta_k}(a \mid s)}` term.
         :param advantages: The :math:`A^{\pi_{\theta_k}}(s, a)` term.
         :param actions: Actions taken by the agent.
         :param states: States visited by the agent.
@@ -85,10 +102,73 @@ class TRPO:
         ration = torch.exp(log_probs - old_log_prob)
         return torch.mean(ration * advantages)
 
-    def Hessian_vector_product(self,states, old_action_dist, vector):
+    def Hessian_vector_product(self, states, old_action_dist, vector):
+        r"""
+        Calculate :math:`Hp` where :math:`H=\mathbb{E}[D_{KL}(\pi_{\theta_k}(\cdot\mid s), \pi_{\theta\ '}(\cdot\mid s))]`
+        :param states: States visited by the agent.
+        :param old_action_dist: The :math:`\pi_{\theta_k}(\cdot\mid s)` term.
+        :param vector: Vector :math:`p`.
+        :return: The :math:`Hp` term.
+        """
+        new_action_dist = torch.distributions.Categorical(self.actor(states))
+        kl = torch.mean(torch.distributions.kl.kl_divergence(old_action_dist, new_action_dist))
+        grad1 = torch.autograd.grad(kl, self.actor.parameters(), create_graph=True)
+        grad1_vector = torch.cat([grad.view(-1) for grad in grad1])
+        grad1_vector_product = torch.dot(grad1_vector, vector)
+        grad2 = torch.autograd.grad(grad1_vector_product, self.actor.parameters())
+        grad2_vector = torch.cat([grad.view(-1) for grad in grad2])
+        return grad2_vector
 
+    def CG(self, g, states, old_action_dist):
+        """
+        Compute :math:`x=H^{-1}g` using Conjugate Gradient method
+        :param g: Vector :math:`g`
+        :param states: States visited by the agent.
+        :param old_action_dist: The :math:`\pi_{\theta_k}(\cdot\mid s)` term.
+        :return: :math:`x` solved by CG
+        """
+        x = torch.zeros_like(g)
+        d = r = g.clone()
+        r_dot = torch.dot(r, r)
+        for _ in range(10):
+            if r_dot <= 1e-10:
+                break
+            Hd = self.Hessian_vector_product(states, old_action_dist, d)
+            alpha = r_dot / torch.dot(d, Hd)
+            x += alpha * d
+            r -= alpha * Hd
+            beta = torch.dot(r, r) / r_dot
+            d = r + beta * d
+            r_dot = torch.dot(r, r)
+        return x
 
-    def CG(self, g, H):
+    def line_search(self, search_vector, states, old_action_dist, old_log_prob, advantages, actions):
+        r"""
+        Find parameters to update actor network using the formula:
+
+        :math:`\theta\ '=\theta_k+ \alpha^i \sqrt{\frac{2\delta}{x^T Hx}}x`,
+        where :math:`i` is the minimal integer making :math:`\theta\ '` better than :math:`\theta_k`
+        while satisfying KL constraint.
+        :param search_vector: The :math:`\sqrt{\frac{2\delta}{x^T Hx}}` term.
+        :param states: States visited by the agent.
+        :param old_action_dist: The :math:`\pi_{\theta_k}(\cdot\mid s)` term.
+        :param old_log_prob: The :math:`\log{\pi_{\theta_k}(a \mid s)}` term.
+        :param advantages: The :math:`A^{\pi_{\theta_k}}(s, a)` term.
+        :param actions: Actions taken by the agent.
+        :return: The :math:`\theta\ '` term.
+        """
+        old_paras = torch.nn.utils.convert_parameters.parameters_to_vector(self.actor.parameters())
+        old_obj = self.compute_surrogate_obj(old_log_prob, advantages, actions, states, self.actor)
+        for i in range(15):
+            new_actor = copy.deepcopy(self.actor)
+            new_paras = old_paras + self.alpha ** i * search_vector
+            torch.nn.utils.convert_parameters.vector_to_parameters(new_paras, new_actor.parameters())
+            new_obj = self.compute_surrogate_obj(old_log_prob, advantages, actions, states, new_actor)
+            new_action_dist = torch.distributions.Categorical(new_actor(states))
+            kl_dist = torch.mean(torch.distributions.kl.kl_divergence(old_action_dist, new_action_dist))
+            if new_obj > old_obj and kl_dist < self.kl_delta:
+                return new_paras
+        return old_paras
 
     def update(self, trail_info):
         states = torch.tensor(np.array(trail_info['states']), dtype=torch.float).to(self.device)
@@ -116,13 +196,19 @@ class TRPO:
         old_action_dist = torch.distributions.Categorical(self.actor(states).detach())
 
         surrogate_obj = self.compute_surrogate_obj(old_pi_log, advan_GAE, actions, states, self.actor)
+
         # calculate gradient g
         grads = torch.autograd.grad(surrogate_obj, self.actor.parameters())
         g = torch.cat([grad.view(-1) for grad in grads]).detach()
 
         # compute x=H^-1*g using CG
+        x = self.CG(g, states, old_action_dist)
 
-        pass
+        # Update actor using Line Search
+        Hx = self.Hessian_vector_product(states, old_action_dist, x)
+        search_vector = torch.sqrt(2 * self.kl_delta / (torch.dot(x, Hx) + 1e-8)) * x
+        new_paras = self.line_search(search_vector, states, old_action_dist, old_pi_log, advan_GAE, actions)
+        torch.nn.utils.convert_parameters.vector_to_parameters(new_paras, self.actor.parameters())
 
 
 if __name__ == '__main__':
