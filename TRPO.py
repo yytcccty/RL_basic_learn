@@ -68,11 +68,12 @@ def compute_GAE(lamda, gamma, td_error):
 
 class TRPO:
     """
-    Suitable for discrete action
+    Suitable for discrete action space
     """
-    def __init__(self, state_dim, action_dim, hidden_dim, kl_delta, gamma, alpha, lr_critic, lamda, device):
-        self.actor = PolicyNet(state_dim, hidden_dim, action_dim).to(device)
-        self.critic = Value_net(state_dim, hidden_dim).to(device)
+
+    def __init__(self, state_space, action_space, hidden_dim, kl_delta, gamma, alpha, lr_critic, lamda, device):
+        self.actor = PolicyNet(state_space.shape[0], hidden_dim, action_space.n).to(device)
+        self.critic = Value_net(state_space.shape[0], hidden_dim).to(device)
         self.kl_delta = kl_delta
         self.gamma = gamma
         self.alpha = alpha
@@ -180,20 +181,12 @@ class TRPO:
         td_target = rewards + self.gamma * self.critic(next_states) * (1 - dones)
 
         """
-        Update critic network
-        """
-        critic_loss = F.mse_loss(td_target.detach(), self.critic(states))
-        self.critic_optimizer.zero_grad()
-        critic_loss.backward()
-        self.critic_optimizer.step()
-
-        """
         Update actor network
         """
         td_error = td_target - self.critic(states)  # advantages of each state in the trail
         advan_GAE = compute_GAE(self.lamda, self.gamma, td_error.cpu()).to(device)
-        old_pi_log = torch.log(self.actor(states).gather(1, actions)).detach()
         old_action_dist = torch.distributions.Categorical(self.actor(states).detach())
+        old_pi_log = old_action_dist.log_prob(actions)
 
         surrogate_obj = self.compute_surrogate_obj(old_pi_log, advan_GAE, actions, states, self.actor)
 
@@ -210,27 +203,197 @@ class TRPO:
         new_paras = self.line_search(search_vector, states, old_action_dist, old_pi_log, advan_GAE, actions)
         torch.nn.utils.convert_parameters.vector_to_parameters(new_paras, self.actor.parameters())
 
+        """
+        Update critic network
+        """
+        critic_loss = F.mse_loss(td_target.detach(), self.critic(states))
+        self.critic_optimizer.zero_grad()
+        critic_loss.backward()
+        self.critic_optimizer.step()
+
+
+class TRPOContinuous:
+    """
+    Suitable for continuous action space
+    """
+
+    def __init__(self, state_space, action_space, hidden_dim, kl_delta, gamma, alpha, lr_critic, lamda, device):
+        self.actor = PolicyNetContinuous(state_space.shape[0], hidden_dim, action_space.shape[0]).to(device)
+        self.critic = Value_net(state_space.shape[0], hidden_dim).to(device)
+        self.kl_delta = kl_delta
+        self.gamma = gamma
+        self.alpha = alpha
+        self.critic_optimizer = torch.optim.Adam(self.critic.parameters(), lr=lr_critic)
+        self.lamda = lamda
+        self.device = device
+
+    def take_action(self, state):
+        state = torch.tensor(np.array([state]), dtype=torch.float).to(self.device)
+        mu, sigma = self.actor(state)
+        action_dist = torch.distributions.Normal(mu, sigma)
+        action = action_dist.sample()
+        return [action.item()]
+
+    def compute_surrogate_obj(self, old_log_prob, advantages, actions, states, actor):
+        """
+        Compute the estimation of the surrogate objective.
+
+        :param old_log_prob: The :math:`\log{\pi_{\theta_k}(a \mid s)}` term.
+        :param advantages: The :math:`A^{\pi_{\theta_k}}(s, a)` term.
+        :param actions: Actions taken by the agent.
+        :param states: States visited by the agent.
+        :param actor: The :math:`\theta\ \ '` network.
+        :return: The estimation of :math:`\dfrac{\pi_{\theta\ \ '}(a \mid s)}{\pi_{\theta_k}(a \mid s)} A^{\pi_{\theta_k}}(s,a)`.
+        """
+        mu, sigma = actor(states)
+        action_dist = torch.distributions.Normal(mu, sigma)
+        log_probs = action_dist.log_prob(actions)
+        ration = torch.exp(log_probs - old_log_prob)
+        return torch.mean(ration * advantages)
+
+    def Hessian_vector_product(self, states, old_action_dist, vector, damping=0.1):
+        r"""
+        Calculate :math:`Hp` where :math:`H=\mathbb{E}[D_{KL}(\pi_{\theta_k}(\cdot\mid s), \pi_{\theta\ '}(\cdot\mid s))]`
+        :param states: States visited by the agent.
+        :param old_action_dist: The :math:`\pi_{\theta_k}(\cdot\mid s)` term.
+        :param vector: Vector :math:`p`.
+        :return: The :math:`Hp` term.
+        """
+        mu, sigma = self.actor(states)
+        new_action_dist = torch.distributions.Normal(mu, sigma)
+        kl = torch.mean(torch.distributions.kl.kl_divergence(old_action_dist, new_action_dist))
+        grad1 = torch.autograd.grad(kl, self.actor.parameters(), create_graph=True)
+        grad1_vector = torch.cat([grad.view(-1) for grad in grad1])
+        grad1_vector_product = torch.dot(grad1_vector, vector)
+        grad2 = torch.autograd.grad(grad1_vector_product, self.actor.parameters())
+        grad2_vector = torch.cat([grad.view(-1) for grad in grad2])
+        return grad2_vector + damping * vector
+
+    def CG(self, g, states, old_action_dist):
+        """
+        Compute :math:`x=H^{-1}g` using Conjugate Gradient method
+        :param g: Vector :math:`g`
+        :param states: States visited by the agent.
+        :param old_action_dist: The :math:`\pi_{\theta_k}(\cdot\mid s)` term.
+        :return: :math:`x` solved by CG
+        """
+        x = torch.zeros_like(g)
+        d = r = g.clone()
+        r_dot = torch.dot(r, r)
+        for _ in range(10):
+            if r_dot <= 1e-10:
+                break
+            Hd = self.Hessian_vector_product(states, old_action_dist, d)
+            alpha = r_dot / torch.dot(d, Hd)
+            x += alpha * d
+            r -= alpha * Hd
+            beta = torch.dot(r, r) / r_dot
+            d = r + beta * d
+            r_dot = torch.dot(r, r)
+        return x
+
+    def line_search(self, search_vector, states, old_action_dist, old_log_prob, advantages, actions):
+        r"""
+        Find parameters to update actor network using the formula:
+
+        :math:`\theta\ '=\theta_k+ \alpha^i \sqrt{\frac{2\delta}{x^T Hx}}x`,
+        where :math:`i` is the minimal integer making :math:`\theta\ '` better than :math:`\theta_k`
+        while satisfying KL constraint.
+        :param search_vector: The :math:`\sqrt{\frac{2\delta}{x^T Hx}}` term.
+        :param states: States visited by the agent.
+        :param old_action_dist: The :math:`\pi_{\theta_k}(\cdot\mid s)` term.
+        :param old_log_prob: The :math:`\log{\pi_{\theta_k}(a \mid s)}` term.
+        :param advantages: The :math:`A^{\pi_{\theta_k}}(s, a)` term.
+        :param actions: Actions taken by the agent.
+        :return: The :math:`\theta\ '` term.
+        """
+        old_paras = torch.nn.utils.convert_parameters.parameters_to_vector(self.actor.parameters())
+        old_obj = self.compute_surrogate_obj(old_log_prob, advantages, actions, states, self.actor)
+        for i in range(15):
+            new_actor = copy.deepcopy(self.actor)
+            new_paras = old_paras + self.alpha ** i * search_vector
+            torch.nn.utils.convert_parameters.vector_to_parameters(new_paras, new_actor.parameters())
+            new_obj = self.compute_surrogate_obj(old_log_prob, advantages, actions, states, new_actor)
+            mu, sigma = new_actor(states)
+            new_action_dist = torch.distributions.Normal(mu, sigma)
+            kl_dist = torch.mean(torch.distributions.kl.kl_divergence(old_action_dist, new_action_dist))
+            if new_obj > old_obj and kl_dist < self.kl_delta:
+                return new_paras
+        return old_paras
+
+    def update(self, trail_info):
+        states = torch.tensor(np.array(trail_info['states']), dtype=torch.float).to(self.device)
+        actions = torch.tensor(np.array(trail_info['actions'])).view(-1, 1).to(self.device)
+        rewards = torch.tensor(np.array(trail_info['rewards']), dtype=torch.float).view(-1, 1).to(self.device)
+        next_states = torch.tensor(np.array(trail_info['next_states']), dtype=torch.float).to(self.device)
+        dones = torch.tensor(np.array(trail_info['dones']), dtype=torch.float).view(-1, 1).to(self.device)
+
+        rewards = (rewards + 8.0) / 8.0
+        td_target = rewards + self.gamma * self.critic(next_states) * (1 - dones)
+
+        """
+        Update actor network
+        """
+        td_error = td_target - self.critic(states)  # advantages of each state in the trail
+        advan_GAE = compute_GAE(self.lamda, self.gamma, td_error.cpu()).to(device)
+        mu, sigma = self.actor(states)
+        old_action_dist = torch.distributions.Normal(mu.detach(), sigma.detach())
+        old_pi_log = old_action_dist.log_prob(actions)
+
+        surrogate_obj = self.compute_surrogate_obj(old_pi_log, advan_GAE, actions, states, self.actor)
+
+        # calculate gradient g
+        grads = torch.autograd.grad(surrogate_obj, self.actor.parameters())
+        g = torch.cat([grad.view(-1) for grad in grads]).detach()
+
+        # compute x=H^-1*g using CG
+        x = self.CG(g, states, old_action_dist)
+
+        # Update actor using Line Search
+        Hx = self.Hessian_vector_product(states, old_action_dist, x)
+        search_vector = torch.sqrt(2 * self.kl_delta / (torch.dot(x, Hx) + 1e-8)) * x
+        new_paras = self.line_search(search_vector, states, old_action_dist, old_pi_log, advan_GAE, actions)
+        torch.nn.utils.convert_parameters.vector_to_parameters(new_paras, self.actor.parameters())
+
+        """
+        Update critic network
+        """
+        critic_loss = F.mse_loss(td_target.detach(), self.critic(states))
+        self.critic_optimizer.zero_grad()
+        critic_loss.backward()
+        self.critic_optimizer.step()
+
 
 if __name__ == '__main__':
     """
     Hyperparameter Settings:
     """
-    gamma = 0.98
+    env_name = "Pendulum-v1"    # CartPole-v1, Pendulum-v1
+    if "Pendulum" in env_name:
+        gamma = 0.9
+        lamda = 0.9
+        kl_delta = 5e-4
+        episodes = 2000
+    else:
+        gamma = 0.98
+        lamda = 0.95
+        kl_delta = 1e-3
+        episodes = 1000
     alpha = 0.5
-    lamda = 0.95
-    lr_critic = 1e-2
-    kl_delta = 5e-4
-    episodes = 500
     hidden_dim = 128
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    env_name = "CartPole-v1"
+    lr_critic = 1e-2
+
     """
     Codings
     """
     env = gym.make(env_name)
-    state_dim = env.observation_space.shape[0]
-    action_dim = env.action_space.n
-    agent = TRPO(state_dim, action_dim, hidden_dim, kl_delta, gamma, alpha, lr_critic, lamda, device)
+    state_space = env.observation_space
+    action_space = env.action_space
+    if "Pendulum" in env_name:
+        agent = TRPOContinuous(state_space, action_space, hidden_dim, kl_delta, gamma, alpha, lr_critic, lamda, device)
+    else:
+        agent = TRPO(state_space, action_space, hidden_dim, kl_delta, gamma, alpha, lr_critic, lamda, device)
     retn_list = rl_utils.train_on_policy_agent(env, agent, episodes)
 
     plt.plot(retn_list)
