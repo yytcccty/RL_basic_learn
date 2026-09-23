@@ -100,7 +100,7 @@ class DQN:
             q_nex_max_value = self.target_net(next_states).max(1)[0].view(-1, 1)  # \max_a Q(s_next, a)
 
         q_target = rewards + self.gamma * q_nex_max_value * (1 - dones)
-        dqn_loss = F.mse_loss(q_values, q_target).mean()
+        dqn_loss = F.mse_loss(q_values, q_target.detach())
         self.optimizer.zero_grad()
         dqn_loss.backward()
         self.optimizer.step()
