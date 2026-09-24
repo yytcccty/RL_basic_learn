@@ -97,7 +97,7 @@ class PPO:
         td_target = rewards + self.gamma * self.critic(next_states) * (1 - dones)
 
         td_error = td_target - self.critic(states)  # advantages of each state in the trail
-        advan_GAE = rl_utils.compute_advantage(self.gamma, self.lamda, td_error.cpu()).to(device)
+        advan_GAE = rl_utils.compute_advantage(self.gamma, self.lamda, td_error.cpu()).to(self.device)
         old_pi_log = torch.log(self.actor(states).gather(1, actions)).detach()
 
         for _ in range(self.rounds):
