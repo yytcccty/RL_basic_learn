@@ -1,11 +1,9 @@
 import numpy as np
-
+import rl_utils
 if not hasattr(np, "bool8"):
     np.bool8 = np.bool_
 import matplotlib.pyplot as plt
-import copy
 import gym
-import rl_utils
 import torch
 import torch.nn.functional as F
 

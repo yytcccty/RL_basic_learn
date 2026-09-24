@@ -1,6 +1,5 @@
 import collections
 import numpy as np
-from matplotlib.lines import lineStyles
 
 if not hasattr(np, "bool8"):
     np.bool8 = np.bool_
