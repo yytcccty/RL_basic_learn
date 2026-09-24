@@ -66,7 +66,7 @@ def compute_GAE(lamda, gamma, td_error):
     return torch.tensor(np.array(advan_GAE_list), dtype=torch.float)
 
 
-class TRPO:
+class PPO:
     """
     Suitable for discrete action space
     """
@@ -116,7 +116,7 @@ class TRPO:
             self.actor_optimizer.step()
 
 
-class TRPOContinuous:
+class PPOContinuous:
     """
     Suitable for continuous action space
     """
@@ -199,9 +199,9 @@ if __name__ == '__main__':
     state_space = env.observation_space
     action_space = env.action_space
     if "Pendulum" in env_name:
-        agent = TRPOContinuous(state_space, action_space, hidden_dim, eps, gamma, lr_critic, lr_actor, lamda, device, rounds)
+        agent = PPOContinuous(state_space, action_space, hidden_dim, eps, gamma, lr_critic, lr_actor, lamda, device, rounds)
     else:
-        agent = TRPO(state_space, action_space, hidden_dim, eps, gamma, lr_critic, lr_actor, lamda, device, rounds)
+        agent = PPO(state_space, action_space, hidden_dim, eps, gamma, lr_critic, lr_actor, lamda, device, rounds)
     retn_list = rl_utils.train_on_policy_agent(env, agent, episodes)
 
     plt.plot(retn_list)
