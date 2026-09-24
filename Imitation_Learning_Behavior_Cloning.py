@@ -1,0 +1,123 @@
+from Basic_DRL.PPO import PPO, PolicyNet
+import rl_utils
+import numpy as np
+import matplotlib.pyplot as plt
+import torch
+import gym
+from tqdm import tqdm
+
+
+def sample_expert_data(agent, env, n_episodes):
+    states = []
+    actions = []
+    for _ in range(n_episodes):
+        state, _ = env.reset()
+        done = False
+        while not done:
+            action = agent.take_action(state)
+            next_state, reward, terminated, truncated, info = env.step(action)
+            done = terminated or truncated
+            states.append(state)
+            actions.append(action)
+            state = next_state
+    return np.array(states), np.array(actions)
+
+
+class BehaviorClone:
+    def __init__(self, state_dim, hidden_dim, action_dim, lr, device):
+        self.policy_net = PolicyNet(state_dim, hidden_dim, action_dim).to(device)
+        self.optimizer = torch.optim.Adam(self.policy_net.parameters(), lr=lr)
+        self.device = device
+
+    def take_action(self, state):
+        state = torch.from_numpy(state).float().unsqueeze(0).to(self.device)
+        prob = self.policy_net(state)
+        dist = torch.distributions.Categorical(prob)
+        action = dist.sample()
+        return action.item()
+
+    def learn(self, expert_s, expert_a):
+        feature = torch.from_numpy(expert_s).float().to(self.device)
+        label = torch.from_numpy(expert_a).view(-1, 1).to(self.device)
+        loss = -torch.mean(torch.log(self.policy_net(feature).gather(1, label)))
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+
+
+def test_BC(agent_bc, env, n_episode):
+    retn = []
+    for _ in range(n_episode):
+        tmp_return = 0
+        state, _ = env.reset()
+        done = False
+        while not done:
+            action = agent_bc.take_action(state)
+            next_state, reward, terminated, truncated, info = env.step(action)
+            done = terminated or truncated
+            tmp_return += reward
+            state = next_state
+        retn.append(tmp_return)
+    return np.mean(retn)
+
+
+if __name__ == '__main__':
+    """
+    Hyperparameters of PP0 training
+    """
+    actor_lr = 1e-3
+    critic_lr = 1e-2
+    num_episodes = 250
+    hidden_dim = 128
+    gamma = 0.98
+    lmbda = 0.95
+    epochs = 10
+    eps = 0.2
+    device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+    env_name = 'CartPole-v1'
+    """
+    PPO training
+    """
+    env = gym.make(env_name)
+    state_space = env.observation_space
+    action_space = env.action_space
+    agent = PPO(state_space, action_space, hidden_dim, eps, gamma, critic_lr, actor_lr, lmbda, device, epochs)
+    retn_list = rl_utils.train_on_policy_agent(env, agent, num_episodes)
+    """
+    Sample expert data
+    """
+    n_episodes = 1
+    n_samples = 30
+    expert_s, expert_a = sample_expert_data(agent, env, n_episodes)
+    idx = np.random.randint(0, expert_s.shape[0], n_samples)
+    expert_s = expert_s[idx]
+    expert_a = expert_a[idx]
+    """
+    Behavior Cloning
+    """
+    lr_BC = 1e-3
+    BC_agent = BehaviorClone(state_space.shape[0], hidden_dim, action_space.n, lr_BC, device)
+    batch_size = 64
+    n_iterations = 1000
+    BC_retn_list = []
+    with tqdm(total=n_iterations, desc="Iterations") as pbar:
+        for i in range(n_iterations):
+            idx = np.random.randint(0, expert_s.shape[0], batch_size)
+            batch_s = expert_s[idx]
+            batch_a = expert_a[idx]
+            BC_agent.learn(batch_s, batch_a)
+            retn = test_BC(BC_agent, env, 5)
+            BC_retn_list.append(retn)
+
+            if (i + 1) % 10 == 0:
+                pbar.set_postfix({"Return avg": retn})
+            pbar.update(1)
+    """
+    Plot
+    """
+    plt.plot(BC_retn_list)
+    plt.xlabel("Iterations")
+    plt.ylabel("Return avg")
+    plt.grid(True)
+    plt.show()
+    pass
