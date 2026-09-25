@@ -3,6 +3,7 @@ import rl_utils
 import numpy as np
 import matplotlib.pyplot as plt
 import torch
+import torch.nn.functional as F
 import gym
 from tqdm import tqdm
 
@@ -61,9 +62,32 @@ def test_BC(agent_bc, env, n_episode):
     return np.mean(retn)
 
 
+class Discriminator(torch.nn.Module):
+    def __init__(self, state_dim, action_dim, hidden_dim):
+        super(Discriminator, self).__init__()
+        self.fc1 = torch.nn.Linear(state_dim + action_dim, hidden_dim)
+        self.fc2 = torch.nn.Linear(hidden_dim, 1)
+
+    def forward(self, states, actions):
+        x = torch.cat((states, actions), dim=1)
+        x = F.relu(self.fc1(x))
+        return F.sigmoid(self.fc2(x))
+
+
+class GAIL:
+    def __init__(self, agent, state_dim, action_dim, hidden_dim, lr_d, device):
+        self.device = device
+        self.agent = agent
+        self.discriminator = Discriminator(state_dim, action_dim, hidden_dim).to(device)
+        self.discriminator_optimizer = torch.optim.Adam(self.discriminator.parameters(), lr=lr_d)
+
+    def learn(self):
+
+
 if __name__ == '__main__':
+    method = 'BC'  # BC GAIL
     """
-    Hyperparameters of PP0 training
+    Hyperparameters of PP0
     """
     actor_lr = 1e-3
     critic_lr = 1e-2
@@ -76,46 +100,51 @@ if __name__ == '__main__':
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     env_name = 'CartPole-v1'
     """
-    PPO training
+    PPO definition
     """
     env = gym.make(env_name)
     state_space = env.observation_space
     action_space = env.action_space
     agent = PPO(state_space, action_space, hidden_dim, eps, gamma, critic_lr, actor_lr, lmbda, device, epochs)
-    retn_list = rl_utils.train_on_policy_agent(env, agent, num_episodes)
-    """
-    Sample expert data
-    """
-    n_episodes = 1
-    n_samples = 30
-    expert_s, expert_a = sample_expert_data(agent, env, n_episodes)
-    idx = np.random.randint(0, expert_s.shape[0], n_samples)
-    expert_s = expert_s[idx]
-    expert_a = expert_a[idx]
-    """
-    Behavior Cloning
-    """
-    lr_BC = 1e-3
-    BC_agent = BehaviorClone(state_space.shape[0], hidden_dim, action_space.n, lr_BC, device)
-    batch_size = 64
-    n_iterations = 1000
-    BC_retn_list = []
-    with tqdm(total=n_iterations, desc="Iterations") as pbar:
-        for i in range(n_iterations):
-            idx = np.random.randint(0, expert_s.shape[0], batch_size)
-            batch_s = expert_s[idx]
-            batch_a = expert_a[idx]
-            BC_agent.learn(batch_s, batch_a)
-            retn = test_BC(BC_agent, env, 5)
-            BC_retn_list.append(retn)
 
-            if (i + 1) % 10 == 0:
-                pbar.set_postfix({"Return avg": retn})
-            pbar.update(1)
+    if method == 'BC':
+        retn_list = rl_utils.train_on_policy_agent(env, agent, num_episodes)
+        """
+        Sample expert data
+        """
+        n_episodes = 1
+        n_samples = 30
+        expert_s, expert_a = sample_expert_data(agent, env, n_episodes)
+        idx = np.random.randint(0, expert_s.shape[0], n_samples)
+        expert_s = expert_s[idx]
+        expert_a = expert_a[idx]
+        """
+        Behavior Cloning
+        """
+        lr_BC = 1e-3
+        BC_agent = BehaviorClone(state_space.shape[0], hidden_dim, action_space.n, lr_BC, device)
+        batch_size = 64
+        n_iterations = 1000
+        retn_list = []
+        with tqdm(total=n_iterations, desc="Iterations") as pbar:
+            for i in range(n_iterations):
+                idx = np.random.randint(0, expert_s.shape[0], batch_size)
+                batch_s = expert_s[idx]
+                batch_a = expert_a[idx]
+                BC_agent.learn(batch_s, batch_a)
+                retn = test_BC(BC_agent, env, 5)
+                retn_list.append(retn)
+
+                if (i + 1) % 10 == 0:
+                    pbar.set_postfix({"Return avg": retn})
+                pbar.update(1)
+    else:
+        lr_d = 1e-3
+        gail = GAIL()
     """
     Plot
     """
-    plt.plot(BC_retn_list)
+    plt.plot(retn_list)
     plt.xlabel("Iterations")
     plt.ylabel("Return avg")
     plt.grid(True)
