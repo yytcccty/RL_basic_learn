@@ -64,7 +64,7 @@ if __name__ == '__main__':
     hidden_dim = 128
     gamma = 0.98
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    env_name = "CartPole-v0"
+    env_name = "CartPole-v1"
 
     """
     Codings
