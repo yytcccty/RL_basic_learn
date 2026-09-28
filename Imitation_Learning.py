@@ -83,9 +83,9 @@ class GAIL:
 
     def learn(self, expert_s, expert_a, trail_info):
         expert_s = torch.from_numpy(expert_s).float().to(self.device)
-        expert_a = torch.from_numpy(expert_a).to(self.device)
+        expert_a = torch.as_tensor(expert_a, dtype=torch.int64, device=self.device)
         agent_s = torch.tensor(np.array(trail_info['states']), dtype=torch.float).to(self.device)
-        agent_a = torch.tensor(np.array(trail_info['actions'])).to(self.device)
+        agent_a = torch.as_tensor(trail_info['actions'], dtype=torch.int64, device=self.device)
 
         expert_a = F.one_hot(expert_a, num_classes=2).float()
         agent_a = F.one_hot(agent_a, num_classes=2).float()

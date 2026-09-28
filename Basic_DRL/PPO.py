@@ -89,7 +89,7 @@ class PPO:
 
     def update(self, trail_info):
         states = torch.tensor(np.array(trail_info['states']), dtype=torch.float).to(self.device)
-        actions = torch.tensor(np.array(trail_info['actions'])).view(-1, 1).to(self.device)
+        actions = torch.as_tensor(trail_info['actions'], dtype=torch.int64, device=self.device).view(-1, 1)
         rewards = torch.tensor(np.array(trail_info['rewards']), dtype=torch.float).view(-1, 1).to(self.device)
         next_states = torch.tensor(np.array(trail_info['next_states']), dtype=torch.float).to(self.device)
         dones = torch.tensor(np.array(trail_info['dones']), dtype=torch.float).view(-1, 1).to(self.device)
