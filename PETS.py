@@ -21,8 +21,7 @@ class ReplayerBuffer:
         return len(self.buffer)
 
     def return_all_samples(self):
-        all_eles = list(self.buffer)
-        return zip(*all_eles)
+        return list(zip(*self.buffer))
 
 
 class CEM:
@@ -95,11 +94,30 @@ class EnsembleModel(nn.Module):
         self.optimizer = torch.optim.Adam(self.parameters(), lr=lr)
 
 
+class EnsembleDynamicModel:
+    def __init__(self, state_dim, action_dim, num_network=5):
+        self.model = EnsembleModel(state_dim, action_dim, ensemble_size=num_network)
+
+    def train(self, inputs, labels, batch_size=64, mat_iter=20, holdout_ratio=0.1):
+        permutn = np.random.permutation(inputs.shape[0])
+        inputs, labels = inputs[permutn], labels[permutn]
+        num_holdout = int(inputs.shape[0] * holdout_ratio)
+        train_inputs, train_labels = inputs[num_holdout:], labels[num_holdout:]  # training set
+        holdout_inputs, holdout_labels = inputs[:num_holdout], labels[:num_holdout]  # validation set
+
+        holdout_inputs = torch.from_numpy(holdout_inputs).float().to(device)
+        holdout_labels = torch.from_numpy(holdout_labels).float().to(device)
+
+
+
 class PETS:
     def __init__(self, env, replay_buffer, num_episodes):
         self._env = env
         self._env_pool = replay_buffer
         self.num_episodes = num_episodes
+        obs_dim = env.observation_space.shape[0]
+        self._action_dim = env.action_space.shape[0]
+        self._model = EnsembleDynamicModel(obs_dim, self._action_dim)
 
     def explore(self):
         obs, _ = self._env.reset()
@@ -114,14 +132,28 @@ class PETS:
             episode_retn += reward
         return episode_retn
 
+    def train_model(self):
+        env_samples = self._env_pool.return_all_samples()
+        obs = np.array(env_samples[0])
+        actions = np.array(env_samples[1])
+        rewards = np.array(env_samples[2]).reshape(-1, 1)
+        next_obs = np.array(env_samples[3])
+        next_obs = np.array(env_samples[3])
+        dones = np.array(env_samples[4])
+        inputs = np.concatenate((obs, actions), axis=1)
+        labels = np.concatenate((rewards, next_obs), axis=1)
+        self._model.train(inputs, labels)
 
     def train(self):
         retn_list = []
         explore_retn = self.explore()
-        print(f'Episode 1 retun: {explore_retn}')
+        print(f'Episode 1 return: {explore_retn}')
         retn_list.append(explore_retn)
-        for i in range(self.num_episodes -1):
-
+        for i in range(self.num_episodes - 1):
+            self.train_model()
+            episode_retn = self.mpc()
+            retn_list.append(episode_retn)
+            print(f'Episode {i + 2} return: {episode_retn}')
 
         return retn_list
 
@@ -130,7 +162,7 @@ if __name__ == '__main__':
     """
     Hyperparameter Settings
     """
-    buffer_size = 1e5
+    buffer_size = 100000
     n_sequences = 50
     elite_ratio = 0.2
     num_episodes = 10
