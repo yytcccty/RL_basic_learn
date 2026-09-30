@@ -3,12 +3,38 @@ import matplotlib.pyplot as plt
 import gym
 import torch
 import collections
-import itertools
 import random
 from Basic_DRL.SAC import SAC_Continuous
-from PETS import EnsembleDynamicsModel, FakeEnv
+from PETS import EnsembleDynamicsModel
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+
+class EnsembleDynamicsModel_Onestep(EnsembleDynamicsModel):
+    def predict(self, inputs, batch_size=64):
+        inputs = np.tile(inputs, (self._num_network, 1, 1))
+        inputs = torch.from_numpy(inputs).float().to(device)
+        mean, var = self.model(inputs, return_logvar=False)
+        return mean.detach().cpu().numpy(), var.detach().cpu().numpy()
+
+
+class FakeEnv:
+    def __init__(self, model):
+        self.model = model
+
+    def step(self, obs, action):
+        inputs = np.concatenate((obs, action), axis=-1)
+        ensemble_model_means, ensemble_model_vars = self.model.predict(inputs)
+        ensemble_model_means[:, :, 1:] += obs
+        ensemble_model_std = np.sqrt(ensemble_model_vars)
+        ensemble_samples = np.random.normal(size=ensemble_model_means.shape) * ensemble_model_std + ensemble_model_means
+
+        num_models, batch_size, _ = ensemble_model_means.shape
+        models_to_use = np.random.choice(num_models, size=batch_size)
+        samples = ensemble_samples[models_to_use, np.arange(0, batch_size)]
+        rewards = samples[:, :1][0][0]
+        next_obs = samples[:, 1:][0]
+        return rewards, next_obs
 
 
 class ReplayBuffer:
@@ -26,7 +52,7 @@ class ReplayBuffer:
             return self.return_all_samples()
         else:
             transitions = random.sample(self.buffer, batch_size)
-            return zip(*transitions)
+            return list(zip(*transitions))
 
     def return_all_samples(self):
         return list(zip(*self.buffer))
@@ -69,7 +95,7 @@ class MBPO:
                 self.update_agent()
                 step += 1
             retn_list.append(episode_retn)
-
+            print(f'Episode {i + 2} return: {episode_retn}')
         return retn_list
 
     def explore(self):
@@ -99,14 +125,14 @@ class MBPO:
         env_samples = self.env_pool.sample(self.rollout_batch_size)
         observations = np.array(env_samples[0])
         for obs in observations:
-            for _ in self.rollout_length:
+            for _ in range(self.rollout_length):
                 action = self.agent.take_action(obs)
-                reward, next_obs = self.fake_env.step(action)
+                reward, next_obs = self.fake_env.step(obs, action)
                 self.model_pool.add(obs, action, reward, next_obs, False)
                 obs = next_obs
 
     def update_agent(self, policy_train_batch_size=64):
-        env_batch_size = policy_train_batch_size * self.real_ratio
+        env_batch_size = int(policy_train_batch_size * self.real_ratio)
         model_batch_size = policy_train_batch_size - env_batch_size
         for _ in range(10):
             env_samples = self.env_pool.sample(env_batch_size)
@@ -115,7 +141,7 @@ class MBPO:
             env_rewards = np.array(env_samples[2])
             env_next_obs = np.array(env_samples[3])
             env_dones = np.array(env_samples[4])
-            if self.model_pool.size > 0:
+            if self.model_pool.size() > 0:
                 model_samples = self.model_pool.sample(model_batch_size)
                 model_obs = np.array(model_samples[0])
                 model_actions = np.array(model_samples[1])
@@ -163,7 +189,7 @@ if __name__ == '__main__':
     model_pool_size = rollout_batch_size * rollout_length
     agent = SAC_Continuous(state_dim, hidden_dim, action_dim, action_bound, gamma, tau, lr_actor, lr_critic, lr_alpha,
                            device, target_entropy)
-    model = EnsembleDynamicsModel(state_dim, action_dim, )
+    model = EnsembleDynamicsModel_Onestep(state_dim, action_dim, )
     fake_env = FakeEnv(model)
     env_pool = ReplayBuffer(buffer_size)
     model_pool = ReplayBuffer(model_pool_size)
