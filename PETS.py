@@ -63,8 +63,8 @@ class FCLayer(nn.Module):
         self.input_dim = input_dim
         self._output_dim = output_dim
         self.activation = activation
-        self.weights = nn.Parameter(torch.Tensor(ensemble_size, input_dim, output_dim)).to(device)
-        self.bias = nn.Parameter(torch.Tensor(ensemble_size, output_dim)).to(device)
+        self.weights = nn.Parameter(torch.Tensor(ensemble_size, input_dim, output_dim).to(device))
+        self.bias = nn.Parameter(torch.Tensor(ensemble_size, output_dim).to(device))
 
     def forward(self, x):
         return self.activation(torch.add(torch.bmm(x, self.weights), self.bias.unsqueeze(1)))
@@ -217,7 +217,7 @@ class FakeEnv:
 
 
 class PETS:
-    def __init__(self, env, replay_buffer, num_episodes, plan_horizon, n_sequence, elite_ratio, ):
+    def __init__(self, env, replay_buffer, num_episodes, plan_horizon, n_sequence, elite_ratio):
         self._env = env
         self._env_pool = replay_buffer
         self.num_episodes = num_episodes
@@ -304,6 +304,10 @@ if __name__ == '__main__':
     seed = 42
     np.random.seed(seed)
     torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
     env.reset(seed=seed)
     env.action_space.seed(seed)
     env.observation_space.seed(seed)
