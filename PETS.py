@@ -277,12 +277,12 @@ class PETS:
         explore_retn = self.explore()
         print(f'Episode 1 return: {explore_retn}')
         retn_list.append(explore_retn)
+
         for i in range(self.num_episodes - 1):
             self.train_model()
             episode_retn = self.mpc()
             retn_list.append(episode_retn)
             print(f'Episode {i + 2} return: {episode_retn}')
-
         return retn_list
 
 
@@ -300,6 +300,14 @@ if __name__ == '__main__':
     Coding
     """
     env = gym.make(env_name)
+
+    seed = 42
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    env.reset(seed=seed)
+    env.action_space.seed(seed)
+    env.observation_space.seed(seed)
+
     replay_buffer = ReplayBuffer(capacity=buffer_size)
     pets = PETS(env, replay_buffer, num_episodes, plan_horizon, n_sequences, elite_ratio)
     retn_list = pets.train()
