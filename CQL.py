@@ -57,10 +57,66 @@ class CQL:
         td_target = rewards + self.gamma * (q_value - self.log_alpha.exp() * log_probs) * (1 - dones)
         critic_loss_1 = F.mse_loss(td_target.detach(), self.critic_1(states, actions))
         critic_loss_2 = F.mse_loss(td_target.detach(), self.critic_2(states, actions))
-
+        # Update critic networks
         batch_size = states.shape[0]
-        random_unif_actions = torch.rand([batch_size * self.num_random, actions.shape[-1]], dtype=torch.float).uniform_(-1, 1).to(device)
-        pass
+        random_unif_actions = torch.rand([batch_size * self.num_random, actions.shape[-1]], dtype=torch.float).uniform_(
+            -1, 1).to(device)
+        random_unif_log_pi = np.log(0.5 ** next_actions.shape[-1])
+
+        tmp_states = states.unsqueeze(1).repeat(1, self.num_random, 1).view(-1, states.shape[-1])
+        tmp_next_states = next_states.unsqueeze(1).repeat(1, self.num_random, 1).view(-1, states.shape[-1])
+
+        random_curr_actions, random_curr_log_pi = self.actor(tmp_states)
+        random_next_actions, random_next_log_pi = self.actor(tmp_next_states)
+
+        q1_unif = self.critic_1(tmp_states, random_unif_actions).view(-1, self.num_random, 1)
+        q1_curr = self.critic_1(tmp_states, random_curr_actions).view(-1, self.num_random, 1)
+        q1_next = self.critic_1(tmp_states, random_next_actions).view(-1, self.num_random, 1)
+        q2_unif = self.critic_2(tmp_states, random_unif_actions).view(-1, self.num_random, 1)
+        q2_curr = self.critic_2(tmp_states, random_curr_actions).view(-1, self.num_random, 1)
+        q2_next = self.critic_2(tmp_states, random_next_actions).view(-1, self.num_random, 1)
+
+        q1_cat = torch.cat([
+            q1_unif - random_unif_log_pi,
+            q1_curr - random_curr_log_pi.detach().view(-1, self.num_random, 1),
+            q1_next - random_next_log_pi.detach().view(-1, self.num_random, 1)
+        ], dim=1)
+        q2_cat = torch.cat([
+            q2_unif - random_unif_log_pi,
+            q2_curr - random_curr_log_pi.detach().view(-1, self.num_random, 1),
+            q2_next - random_next_log_pi.detach().view(-1, self.num_random, 1)
+        ], dim=1)
+
+        qf1_loss_1 = torch.logsumexp(q1_cat, dim=1).mean()
+        qf1_loss_2 = self.critic_1(states, actions).mean()
+        qf2_loss_1 = torch.logsumexp(q2_cat, dim=1).mean()
+        qf2_loss_2 = self.critic_2(states, actions).mean()
+        qf1_loss = self.beta * (qf1_loss_1 - qf1_loss_2) + critic_loss_1
+        qf2_loss = self.beta * (qf2_loss_1 - qf2_loss_2) + critic_loss_2
+
+        self.critic_1_optimizer.zero_grad()
+        qf1_loss.backward(retain_graph=True)
+        self.critic_1_optimizer.step()
+
+        self.critic_2_optimizer.zero_grad()
+        qf2_loss.backward(retain_graph=True)
+        self.critic_2_optimizer.step()
+
+        # Calculate actor loss
+        actions, log_probs = self.actor(states)
+        q_value = torch.min(self.critic_1(states, actions), self.critic_2(states, actions))
+        actor_loss = torch.mean(self.log_alpha.exp() * log_probs - q_value)
+        self.actor_optimizer.zero_grad()
+        actor_loss.backward()
+        self.actor_optimizer.step()
+        # Update temperature
+        alpha_loss = torch.mean(-self.log_alpha.exp() * (log_probs.detach() + self.target_entropy))
+        self.log_alpha_optimizer.zero_grad()
+        alpha_loss.backward()
+        self.log_alpha_optimizer.step()
+
+        self.soft_update(self.critic_1, self.critic_1_target)
+        self.soft_update(self.critic_2, self.critic_2_target)
 
 
 if __name__ == '__main__':
@@ -71,7 +127,7 @@ if __name__ == '__main__':
 
     env_name = 'Pendulum-v1'  # CartPole Pendulum
     hidden_dim = 128
-    episodes = 10
+    episodes = 100
     buffer_size = 100000
     batch_size = 64
     minimal_size = 1000
