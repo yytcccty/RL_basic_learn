@@ -206,3 +206,10 @@ if __name__ == '__main__':
     plt.ylabel('Reward Sum')
     plt.grid(True)
     plt.show()
+
+    mv_return = rl_utils.moving_average(retn_list, 9)
+    plt.plot(mv_return)
+    plt.xlabel('Episodes')
+    plt.ylabel('Converted Reward')
+    plt.grid(True)
+    plt.show()
