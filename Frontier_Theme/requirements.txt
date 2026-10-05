@@ -1,0 +1,8 @@
+# Only suitable for IPPO.py file
+gym==0.20.0
+matplotlib==3.5.3
+numpy==1.20.0
+scipy==1.7.3
+torch==1.13.1+cpu
+tqdm==4.64.1
+ma-gym==0.0.5
