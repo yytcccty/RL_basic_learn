@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 
 from ma_gym.envs.combat.combat import Combat
 
+
 class PolicyNet(torch.nn.Module):
     def __init__(self, state_dim, hidden_dim, action_dim):
         super(PolicyNet, self).__init__()
@@ -34,6 +35,7 @@ class ValueNet(torch.nn.Module):
 
 class PPO:
     """ PPO算法,采用截断方式 """
+
     def __init__(self, state_dim, hidden_dim, action_dim, actor_lr, critic_lr,
                  lmbda, eps, gamma, device):
         self.actor = PolicyNet(state_dim, hidden_dim, action_dim).to(device)
@@ -109,19 +111,19 @@ if __name__ == '__main__':
 
     team_size = 2
     grid_size = (15, 15)
-    env=Combat(grid_shape=grid_size,n_agents=team_size,n_opponents=team_size)
+    env = Combat(grid_shape=grid_size, n_agents=team_size, n_opponents=team_size)
     state_dim = env.observation_space[0].shape[0]
     action_dim = env.action_space[0].n
 
     agent = PPO(state_dim, hidden_dim, action_dim, actor_lr, critic_lr, lmbda, eps, gamma, device)
 
-    win_list=[]
+    win_list = []
     for i in range(10):
-        with tqdm(total=int(num_episodes/10), desc=f"Iteration: {i}") as pbar:
-            for i_episode in range(int(num_episodes/10)):
-                trail_info_1=dict(states=[],actions=[],rewards=[],next_states=[],dones=[])
-                trail_info_2=dict(states=[],actions=[],rewards=[],next_states=[],dones=[])
-                s=env.reset()
+        with tqdm(total=int(num_episodes / 10), desc=f"Iteration: {i}") as pbar:
+            for i_episode in range(int(num_episodes / 10)):
+                trail_info_1 = dict(states=[], actions=[], rewards=[], next_states=[], dones=[])
+                trail_info_2 = dict(states=[], actions=[], rewards=[], next_states=[], dones=[])
+                s = env.reset()
                 terminal = False
                 while not terminal:
                     a_1 = agent.take_action(s[0])
@@ -129,13 +131,13 @@ if __name__ == '__main__':
                     next_s, r, done, info = env.step([a_1, a_2])
                     trail_info_1['states'].append(s[0])
                     trail_info_1['actions'].append(a_1)
-                    trail_info_1['rewards'].append(r[0]+100 if info["win"] else r[0]-0.1)
+                    trail_info_1['rewards'].append(r[0] + 100 if info["win"] else r[0] - 0.1)
                     trail_info_1['next_states'].append(next_s[0])
                     trail_info_1['dones'].append(False)
 
                     trail_info_2['states'].append(s[1])
                     trail_info_2['actions'].append(a_2)
-                    trail_info_2['rewards'].append(r[1]+100 if info["win"] else r[1]-0.1)
+                    trail_info_2['rewards'].append(r[1] + 100 if info["win"] else r[1] - 0.1)
                     trail_info_2['next_states'].append(next_s[1])
                     trail_info_2['dones'].append(False)
 
@@ -144,16 +146,16 @@ if __name__ == '__main__':
                 win_list.append(1 if info["win"] else 0)
                 agent.update(trail_info_1)
                 agent.update(trail_info_2)
-                if (i_episode+1) % 100 == 0:
+                if (i_episode + 1) % 100 == 0:
                     pbar.set_postfix({
-                        "episode": f"{i*num_episodes/10 + i_episode+1}",
+                        "episode": f"{i * num_episodes / 10 + i_episode + 1}",
                         "avg win rate": f"{np.mean(win_list[-100:])}"
                     })
                 pbar.update(1)
 
     win_array = np.array(win_list)
-    win_array = np.mean(win_array.reshape(-1,100), axis=1).flatten()
-    xx = np.arange(win_array.shape[0])*100
+    win_array = np.mean(win_array.reshape(-1, 100), axis=1).flatten()
+    xx = np.arange(win_array.shape[0]) * 100
     plt.plot(xx, win_array)
     plt.xlabel("Episode")
     plt.ylabel("Win rate")
