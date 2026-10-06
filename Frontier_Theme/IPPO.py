@@ -1,4 +1,4 @@
-# This script needs another requirements.txt
+# This script needs another requirements.txt (requirements_for_IPPO.txt)
 import torch
 import torch.nn.functional as F
 import numpy as np
