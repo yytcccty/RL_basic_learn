@@ -76,18 +76,18 @@ class DDPG_HER(DDPG):
         actions = torch.tensor(np.array(trail_info['actions']), dtype=torch.float).to(self.device)
         dones = torch.tensor(np.array(trail_info['dones']), dtype=torch.float).view(-1, 1).to(self.device)
 
-        q_target = rewards + self.gamma * self.critc_target(next_states, self.actor_target(next_states)) * (1 - dones)
-        critic_loss = torch.mean(F.mse_loss(q_target, self.critc(states, actions)))
-        self.critc_optimizer.zero_grad()
+        q_target = rewards + self.gamma * self.critic_target(next_states, self.actor_target(next_states)) * (1 - dones)
+        critic_loss = torch.mean(F.mse_loss(q_target, self.critic(states, actions)))
+        self.critic_optimizer.zero_grad()
         critic_loss.backward()
-        self.critc_optimizer.step()
+        self.critic_optimizer.step()
 
-        actor_loss = -torch.mean(self.critc(states, self.actor(states)))
+        actor_loss = -torch.mean(self.critic(states, self.actor(states)))
         self.actor_optimizer.zero_grad()
         actor_loss.backward()
         self.actor_optimizer.step()
 
-        self.soft_update(self.critc, self.critc_target)
+        self.soft_update(self.critic, self.critic_target)
         self.soft_update(self.actor, self.actor_target)
 
 

@@ -39,13 +39,13 @@ class Critic(torch.nn.Module):
 class DDPG:
     def __init__(self, state_dim, action_dim, hidden_dim, gamma, tau, action_bound, device, lr_actor, lr_critic, sigma):
         self.actor = Actor(state_dim, hidden_dim, action_dim, action_bound).to(device)
-        self.critc = Critic(state_dim, hidden_dim, action_dim).to(device)
+        self.critic = Critic(state_dim, hidden_dim, action_dim).to(device)
         self.actor_target = Actor(state_dim, hidden_dim, action_dim, action_bound).to(device)
-        self.critc_target = Critic(state_dim, hidden_dim, action_dim).to(device)
+        self.critic_target = Critic(state_dim, hidden_dim, action_dim).to(device)
         self.actor_target.load_state_dict(self.actor.state_dict())
-        self.critc_target.load_state_dict(self.critc.state_dict())
+        self.critic_target.load_state_dict(self.critic.state_dict())
         self.actor_optimizer = torch.optim.Adam(self.actor.parameters(), lr_actor)
-        self.critc_optimizer = torch.optim.Adam(self.critc.parameters(), lr_critic)
+        self.critic_optimizer = torch.optim.Adam(self.critic.parameters(), lr_critic)
         self.gamma = gamma
         self.tau = tau
         self.sigma = sigma
@@ -69,18 +69,18 @@ class DDPG:
         actions = torch.tensor(np.array(trail_info['actions']), dtype=torch.float).view(-1, 1).to(self.device)
         dones = torch.tensor(np.array(trail_info['dones']), dtype=torch.float).view(-1, 1).to(self.device)
 
-        q_target = rewards + self.gamma * self.critc_target(next_states, self.actor_target(next_states)) * (1 - dones)
-        critic_loss = torch.mean(F.mse_loss(q_target, self.critc(states, actions)))
-        self.critc_optimizer.zero_grad()
+        q_target = rewards + self.gamma * self.critic_target(next_states, self.actor_target(next_states)) * (1 - dones)
+        critic_loss = torch.mean(F.mse_loss(q_target, self.critic(states, actions)))
+        self.critic_optimizer.zero_grad()
         critic_loss.backward()
-        self.critc_optimizer.step()
+        self.critic_optimizer.step()
 
-        actor_loss = -torch.mean(self.critc(states, self.actor(states)))
+        actor_loss = -torch.mean(self.critic(states, self.actor(states)))
         self.actor_optimizer.zero_grad()
         actor_loss.backward()
         self.actor_optimizer.step()
 
-        self.soft_update(self.critc, self.critc_target)
+        self.soft_update(self.critic, self.critic_target)
         self.soft_update(self.actor, self.actor_target)
 
 
