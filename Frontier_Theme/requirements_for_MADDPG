@@ -1,0 +1,7 @@
+# Only suitable for MADDPG.py file
+gym==0.10.5
+matplotlib==2.2.0
+numpy==1.14.5
+torch==1.5.0+cpu
+tqdm==4.23.3
+multiagent==0.0.1
