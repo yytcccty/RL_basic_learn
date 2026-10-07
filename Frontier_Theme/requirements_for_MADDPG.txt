@@ -1,4 +1,5 @@
 # Only suitable for MADDPG.py file
+# python version 3.5.4
 gym==0.10.5
 matplotlib==2.2.0
 numpy==1.14.5

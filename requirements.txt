@@ -1,4 +1,5 @@
 # Suitable for every .py file except IPPO.py and MADDPG.py file
+# python version 3.10.21
 gym==0.26.2
 matplotlib==3.8.4
 numpy==2.5.3
