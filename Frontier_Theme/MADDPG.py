@@ -111,8 +111,16 @@ class MADDPG:
             agt.soft_update(agt.actor, agt.actor_target, self.tau)
             agt.soft_update(agt.critic, agt.critic_target, self.tau)
 
+    @property
+    def target_policies(self):
+        return [agent.actor_target for agent in self.agents]
+
     def update(self, samples, i_agent):
-        pass
+        obs, act, rew, next_obs, done = samples
+        cur_agent = self.agents[i_agent]
+
+        cur_agent.critic.optimizer.zero_grad()
+        all_target_act = [onehot_from_logits(pi(_next_obs)) for pi, _next_obs in zip(self.target_policies, next_obs)]
 
 
 def stack_array(x, device):
