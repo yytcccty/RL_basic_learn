@@ -92,7 +92,7 @@ def evaluate(env_id, maddpg, n_episode=10, episode_length=25):
 
 
 class MADDPG:
-    def __init__(self, env, state_dims, action_dims, hidden_dim, critic_input_dim, device, lr_actor, lr_critic, tau):
+    def __init__(self, env, state_dims, action_dims, hidden_dim, critic_input_dim, device, lr_actor, lr_critic, tau, gamma):
         self.agents = []
         for i in range(len(env.agents)):
             self.agents.append(
@@ -100,6 +100,8 @@ class MADDPG:
         self.env = env
         self.device = device
         self.tau = tau
+        self.gamma = gamma
+        self.critic_criterion = torch.nn.MSELoss()
 
     def take_action(self, states, explore):
         states = [torch.tensor([states[i]], dtype=torch.float, device=self.device) for i in range(len(env.agents))]
@@ -115,12 +117,30 @@ class MADDPG:
     def target_policies(self):
         return [agent.actor_target for agent in self.agents]
 
+    @property
+    def policies(self):
+        return [agent.actor for agent in self.agents]
+
     def update(self, samples, i_agent):
         obs, act, rew, next_obs, done = samples
         cur_agent = self.agents[i_agent]
 
-        cur_agent.critic.optimizer.zero_grad()
+        cur_agent.critic_optimizer.zero_grad()
         all_target_act = [onehot_from_logits(pi(_next_obs)) for pi, _next_obs in zip(self.target_policies, next_obs)]
+        target_critic_input = torch.cat((*next_obs, *all_target_act), dim=1)
+        target_critic_value = rew[i_agent] + self.gamma * cur_agent.critic_target(target_critic_input) * (1 - done[i_agent])
+        critic_input = torch.cat((*obs, *act), dim=1)
+        critic_value = cur_agent.critic(critic_input)
+        critic_loss = self.critic_criterion(critic_value, target_critic_value.detach())
+        critic_loss.backward()
+        cur_agent.critic_optimizer.step()
+
+        cur_agent.actor_optimizer.zero_grad()
+        cur_actor_out = cur_agent.actor(obs[i_agent])
+        cur_actor_vf_in = gumbel_softmax(cur_actor_out)
+
+
+
 
 
 def stack_array(x, device):
@@ -168,7 +188,7 @@ if __name__ == '__main__':
     for state_space in env.observation_space:
         state_dims.append(state_space.shape[0])
     critic_input_dim = sum(state_dims) + sum(action_dims)
-    maddpg = MADDPG(env, state_dims, action_dims, hidden_dim, critic_input_dim, device, actor_lr, critic_lr, tau)
+    maddpg = MADDPG(env, state_dims, action_dims, hidden_dim, critic_input_dim, device, actor_lr, critic_lr, tau, gamma)
 
     return_list = []
     total_step = 0
