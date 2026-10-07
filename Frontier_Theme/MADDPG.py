@@ -92,7 +92,8 @@ def evaluate(env_id, maddpg, n_episode=10, episode_length=25):
 
 
 class MADDPG:
-    def __init__(self, env, state_dims, action_dims, hidden_dim, critic_input_dim, device, lr_actor, lr_critic, tau, gamma):
+    def __init__(self, env, state_dims, action_dims, hidden_dim, critic_input_dim, device, lr_actor, lr_critic, tau,
+                 gamma):
         self.agents = []
         for i in range(len(env.agents)):
             self.agents.append(
@@ -128,7 +129,8 @@ class MADDPG:
         cur_agent.critic_optimizer.zero_grad()
         all_target_act = [onehot_from_logits(pi(_next_obs)) for pi, _next_obs in zip(self.target_policies, next_obs)]
         target_critic_input = torch.cat((*next_obs, *all_target_act), dim=1)
-        target_critic_value = rew[i_agent] + self.gamma * cur_agent.critic_target(target_critic_input) * (1 - done[i_agent])
+        target_critic_value = rew[i_agent] + self.gamma * cur_agent.critic_target(target_critic_input) * (
+                1 - done[i_agent])
         critic_input = torch.cat((*obs, *act), dim=1)
         critic_value = cur_agent.critic(critic_input)
         critic_loss = self.critic_criterion(critic_value, target_critic_value.detach())
@@ -138,9 +140,17 @@ class MADDPG:
         cur_agent.actor_optimizer.zero_grad()
         cur_actor_out = cur_agent.actor(obs[i_agent])
         cur_actor_vf_in = gumbel_softmax(cur_actor_out)
-
-
-
+        all_actor_acs = []
+        for i, (pi, _obs) in enumerate(zip(self.policies, obs)):
+            if i == i_agent:
+                all_actor_acs.append(cur_actor_vf_in)
+            else:
+                all_actor_acs.append(onehot_from_logits(pi(_obs)))
+        vf_in = torch.cat((*obs, *all_actor_acs), dim=1)
+        actor_loss = -cur_agent.critic(vf_in).mean()
+        actor_loss += (cur_actor_out ** 2).mean() * 1e-3  # Regularization term
+        actor_loss.backward()
+        cur_agent.actor_optimizer.step()
 
 
 def stack_array(x, device):
@@ -211,4 +221,14 @@ if __name__ == '__main__':
             return_list.append(ep_returns)
             print("Episode {}\tReturn: {}".format(i_episode + 1, ep_returns))
 
+    return_array = np.array(return_list)
+    plt.figure(figsize=[15, 5])
+    for i, agent_name in enumerate(["adversary_0", "agent_0", "agent_1"]):
+        plt.subplot(1, 3, i + 1)
+        plt.plot(np.arange(return_array.shape[0]) * 100, rl_utils.moving_average(return_array[:, i], 9))
+        plt.xlabel("Episode")
+        plt.ylabel("Converted return")
+        plt.title(agent_name)
+    plt.tight_layout()
+    plt.show()
     pass
